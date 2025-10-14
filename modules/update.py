@@ -16,22 +16,19 @@ def register(client):
             return
 
         try:
-            tracking_check = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            fetch_result = subprocess.run(
+                ["git", "fetch", "origin"],
                 cwd=bot_dir,
                 capture_output=True,
                 text=True
             )
             
-            if tracking_check.returncode != 0:
-                subprocess.run(
-                    ["git", "branch", "--set-upstream-to=origin/main", "main"],
-                    cwd=bot_dir,
-                    capture_output=True
-                )
-            
+            if fetch_result.returncode != 0:
+                await event.edit(f"Ошибка при получении обновлений:\n<code>{fetch_result.stderr}</code>", parse_mode="html")
+                return
+
             process = subprocess.run(
-                ["git", "pull"],
+                ["git", "pull", "origin", "main", "--ff-only"],
                 cwd=bot_dir,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -42,8 +39,14 @@ def register(client):
                 msg = process.stdout.strip() or "Репозиторий обновлён."
                 await event.edit(f"Обновление завершено:\n\n<code>{msg}</code>", parse_mode="html")
                 
-                await event.respond("Перезапуск бота...")
-                os.execl(sys.executable, sys.executable, *sys.argv)
+                if "Already up to date" not in msg:
+                    await event.respond("Перезапуск бота...")
+                    # Запускаем через subprocess с правильными путями
+                    script_path = os.path.join(bot_dir, "faust_tool", "userbot.py")
+                    subprocess.Popen([sys.executable, script_path], cwd=bot_dir)
+                    sys.exit(0)  # Завершаем текущий процесс
+                else:
+                    await event.respond("Изменений нет, перезапуск не требуется.")
                 
             else:
                 err = process.stderr.strip() or "Неизвестная ошибка при git pull."
