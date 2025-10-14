@@ -27,6 +27,17 @@ def register(client):
                 await event.edit(f"Ошибка при получении обновлений:\n<code>{fetch_result.stderr}</code>", parse_mode="html")
                 return
 
+            reset_result = subprocess.run(
+                ["git", "reset", "--hard", "HEAD"],
+                cwd=bot_dir,
+                capture_output=True,
+                text=True
+            )
+            
+            if reset_result.returncode != 0:
+                await event.edit(f"Ошибка при сбросе изменений:\n<code>{reset_result.stderr}</code>", parse_mode="html")
+                return
+
             process = subprocess.run(
                 ["git", "pull", "origin", "main", "--ff-only"],
                 cwd=bot_dir,
@@ -41,9 +52,9 @@ def register(client):
                 
                 if "Already up to date" not in msg:
                     await event.respond("Перезапуск бота...")
-                    os.chdir(bot_dir)
-                    sys.path.insert(0, bot_dir)
-                    os.execl(sys.executable, sys.executable, "-m", "faust_tool.userbot")
+                    script_path = os.path.join(bot_dir, "faust_tool", "userbot.py")
+                    subprocess.Popen([sys.executable, script_path], cwd=bot_dir)
+                    sys.exit(0)
                 else:
                     await event.respond("Изменений нет, перезапуск не требуется.")
                 
