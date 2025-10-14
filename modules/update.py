@@ -34,7 +34,7 @@ def register(client):
             )
 
             if pull.returncode != 0 and "would be overwritten" in pull.stderr:
-                await event.edit("Обнаружены локальные изменения — выполняю жёсткий сброс...")
+                await event.edit("Обнаружены локальные изменения, выполняется сброс...")
                 subprocess.run(["git", "reset", "--hard", "HEAD"], cwd=bot_dir)
                 pull = subprocess.run(
                     ["git", "pull", "origin", "main", "--ff-only"],
@@ -59,4 +59,4 @@ def register(client):
                 await event.edit(f"Ошибка при обновлении:\n\n<code>{err}</code>", parse_mode="html")
 
         except Exception as e:
-            await event.edit(f"Исключение при обновлении:\n<code>{e}</code>", parse_mode="html")
+            await event.edit(f"Ошибка выполнения git pull:\n<code>{e}</code>", parse_mode="html")
