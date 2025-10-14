@@ -25,7 +25,7 @@ def register(client):
         ping_ms = (time.perf_counter() - start) * 1000
 
         text = (
-            "𝕱𝖆𝖚𝖘𝖙-𝕿𝖔𝖔𝖑\n"
+            "𝕱𝖆𝖚𝖘𝖙-𝕿𝖔𝖔𝖑 2\n"
             "FTG + Native modules userbot client.\n"
             "Version: 1.0.0\n\n"
             f"Ping: {ping_ms:.2f} ms\n\n"
@@ -36,3 +36,4 @@ def register(client):
 
         await sent.edit(text)
         await event.delete()
+
