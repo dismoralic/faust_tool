@@ -41,10 +41,9 @@ def register(client):
                 
                 if "Already up to date" not in msg:
                     await event.respond("Перезапуск бота...")
-                    # Запускаем через subprocess с правильными путями
-                    script_path = os.path.join(bot_dir, "faust_tool", "userbot.py")
-                    subprocess.Popen([sys.executable, script_path], cwd=bot_dir)
-                    sys.exit(0)  # Завершаем текущий процесс
+                    os.chdir(bot_dir)
+                    sys.path.insert(0, bot_dir)
+                    os.execl(sys.executable, sys.executable, "-m", "faust_tool.userbot")
                 else:
                     await event.respond("Изменений нет, перезапуск не требуется.")
                 
