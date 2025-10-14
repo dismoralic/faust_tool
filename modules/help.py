@@ -55,7 +55,7 @@ def pattern_to_help(pattern: str) -> str:
 def register(client):
     @client.on(events.NewMessage(outgoing=True, pattern=r'^\.help$'))
     async def help_cmd(event: Message):
-        text = "faust-tool client\n\n"
+        text = "faust-tool clietnt\n\n"
 
         modules = loader.get_loaded_modules()
 
@@ -114,5 +114,6 @@ def register(client):
                 await event.respond(part)
         else:
             await event.respond(text)
+
 
         await event.delete()
