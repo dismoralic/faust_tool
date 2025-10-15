@@ -9,10 +9,14 @@ def register(client):
     async def update_bot(event: Message):
         await event.edit("Обновление клиента...")
 
-        bot_dir = os.getcwd()
+        current_file_dir = os.path.dirname(os.path.abspath(__file__))
+        bot_dir = os.path.dirname(current_file_dir)
         
-        if not os.path.exists(os.path.join(bot_dir, ".git")):
-            await event.edit("Бот не привязан к репозиторию.")
+        await event.edit(f"Корень репозитория: {bot_dir}")
+        
+        git_dir = os.path.join(bot_dir, ".git")
+        if not os.path.exists(git_dir):
+            await event.edit(f"Бот не привязан к репозиторию. .git не найден в: {git_dir}")
             return
 
         try:
@@ -50,8 +54,10 @@ def register(client):
                 if "Already up to date" not in msg:
                     await event.respond("Перезапуск бота...")
                     
+                    userbot_path = os.path.join(bot_dir, "userbot.py")
+                    
                     subprocess.Popen(
-                        [sys.executable, "-m", "faust_tool.userbot"],
+                        [sys.executable, userbot_path],
                         cwd=bot_dir
                     )
                     sys.exit(0)
