@@ -81,7 +81,7 @@ def register(client):
             backup_dir = os.path.join(temp_dir, "backup")
             os.makedirs(backup_dir)
             
-            exclude_items = {'__pycache__', '.git', 'temp_update', 'backup', '.vscode', 'modules'}
+            exclude_items = {'__pycache__', '.git', 'temp_update', 'backup', '.vscode'}
             
             for item in os.listdir(extract_dir):
                 if item in exclude_items:
@@ -119,13 +119,9 @@ def register(client):
                             shutil.copy2(src_path, dst_path)
                 raise Exception("Основной файл userbot.py не найден после обновления")
             
-            os.chdir(bot_dir)
-            sys.path.insert(0, bot_dir)
-            
             subprocess.Popen([
                 sys.executable, 
-                "-m",
-                "userbot"
+                userbot_path
             ], cwd=bot_dir)
             
             await event.respond("Бот перезапускается...")
@@ -134,7 +130,8 @@ def register(client):
                 if os.path.exists(temp_file):
                     shutil.rmtree(temp_file)
             
-            sys.exit(0)
+            client.disconnect()
+            return
             
         except requests.RequestException as e:
             await event.edit(f"Ошибка сети при скачивании: {e}")
