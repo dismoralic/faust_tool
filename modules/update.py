@@ -16,8 +16,6 @@ def register(client):
         current_file_dir = os.path.dirname(os.path.abspath(__file__))
         bot_dir = os.path.dirname(current_file_dir)
         
-        await event.edit(f"Рабочая директория: {bot_dir}")
-        
         temp_files = []
         
         try:
@@ -83,7 +81,7 @@ def register(client):
             backup_dir = os.path.join(temp_dir, "backup")
             os.makedirs(backup_dir)
             
-            exclude_items = {'__pycache__', '.git', 'temp_update', 'backup', '.vscode'}
+            exclude_items = {'__pycache__', '.git', 'temp_update', 'backup', '.vscode', 'modules'}
             
             for item in os.listdir(extract_dir):
                 if item in exclude_items:
@@ -121,9 +119,13 @@ def register(client):
                             shutil.copy2(src_path, dst_path)
                 raise Exception("Основной файл userbot.py не найден после обновления")
             
+            os.chdir(bot_dir)
+            sys.path.insert(0, bot_dir)
+            
             subprocess.Popen([
                 sys.executable, 
-                userbot_path
+                "-m",
+                "userbot"
             ], cwd=bot_dir)
             
             await event.respond("Бот перезапускается...")
