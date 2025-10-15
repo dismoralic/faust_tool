@@ -15,33 +15,81 @@ def register(client):
         await event.edit(f"Корень репозитория: {bot_dir}")
 
         git_dir = os.path.join(bot_dir, ".git")
+        
         if not os.path.exists(git_dir):
-            await event.edit(f"Бот не привязан к репозиторию. .git не найден в: {git_dir}")
-            return
+            await event.edit("Репозиторий не найден. Привязываю к GitHub...")
+            
+            try:
+                init = subprocess.run(
+                    ["git", "init"],
+                    cwd=bot_dir,
+                    capture_output=True,
+                    text=True
+                )
+                if init.returncode != 0:
+                    await event.edit(f"Ошибка инициализации git: {init.stderr}")
+                    return
+                
+                remote = subprocess.run(
+                    ["git", "remote", "add", "origin", "https://github.com/dismoralic/faust_tool.git"],
+                    cwd=bot_dir,
+                    capture_output=True,
+                    text=True
+                )
+                if remote.returncode != 0:
+                    await event.edit(f"Ошибка добавления remote: {remote.stderr}")
+                    return
+                
+                await event.edit("Репозиторий привязан! Получаю обновления...")
+                
+            except Exception as e:
+                await event.edit(f"Ошибка привязки к репозиторию: {e}")
+                return
 
         try:
+            remote_check = subprocess.run(
+                ["git", "remote", "-v"],
+                cwd=bot_dir,
+                capture_output=True,
+                text=True
+            )
+            
+            await event.edit(f"Remote: {remote_check.stdout}")
+            
+            if "dismoralic/faust_tool" not in remote_check.stdout:
+                subprocess.run(
+                    ["git", "remote", "add", "origin", "https://github.com/dismoralic/faust_tool.git"],
+                    cwd=bot_dir
+                )
+            
             fetch = subprocess.run(
                 ["git", "fetch", "origin"],
                 cwd=bot_dir,
                 capture_output=True,
                 text=True
             )
+            
             if fetch.returncode != 0:
-                await event.edit(f"Ошибка при получении обновлений:\n<code>{fetch.stderr}</code>", parse_mode="html")
-                return
-
-            pull = subprocess.run(
-                ["git", "pull", "origin", "main", "--ff-only"],
-                cwd=bot_dir,
-                capture_output=True,
-                text=True
-            )
+                await event.edit("Пробую принудительно установить связь...")
+                pull = subprocess.run(
+                    ["git", "pull", "origin", "main", "--allow-unrelated-histories"],
+                    cwd=bot_dir,
+                    capture_output=True,
+                    text=True
+                )
+            else:
+                pull = subprocess.run(
+                    ["git", "pull", "origin", "main", "--ff-only"],
+                    cwd=bot_dir,
+                    capture_output=True,
+                    text=True
+                )
 
             if pull.returncode != 0 and "would be overwritten" in pull.stderr:
                 await event.edit("Обнаружены локальные изменения, выполняется сброс...")
-                subprocess.run(["git", "reset", "--hard", "HEAD"], cwd=bot_dir)
+                subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=bot_dir)
                 pull = subprocess.run(
-                    ["git", "pull", "origin", "main", "--ff-only"],
+                    ["git", "pull", "origin", "main"],
                     cwd=bot_dir,
                     capture_output=True,
                     text=True
@@ -59,8 +107,13 @@ def register(client):
                 else:
                     await event.respond("Изменений нет, перезапуск не требуется.")
             else:
-                err = pull.stderr.strip() or "Неизвестная ошибка при git pull."
-                await event.edit(f"Ошибка при обновлении:\n\n<code>{err}</code>", parse_mode="html")
+                await event.edit("Пробую принудительное обновление...")
+                subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=bot_dir)
+                
+                await event.edit("Бот обновлен принудительно! Перезапуск...")
+                userbot_path = os.path.join(bot_dir, "userbot.py")
+                subprocess.Popen([sys.executable, userbot_path], cwd=bot_dir)
+                sys.exit(0)
 
         except Exception as e:
             await event.edit(f"Ошибка выполнения git pull:\n<code>{e}</code>", parse_mode="html")
