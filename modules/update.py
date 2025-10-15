@@ -50,19 +50,10 @@ def register(client):
                 if "Already up to date" not in msg:
                     await event.respond("Перезапуск бота...")
                     
-                    main_py_path = os.path.join(bot_dir, "userbot.py")
-                    
-                    if os.path.exists(main_py_path):
-                        subprocess.Popen([sys.executable, main_py_path], cwd=bot_dir)
-                    else:
-                        python_files = [f for f in os.listdir(bot_dir) if f.endswith('.py')]
-                        if python_files:
-                            main_file = python_files[0]
-                            subprocess.Popen([sys.executable, main_file], cwd=bot_dir)
-                        else:
-                            await event.respond("Не найден основной файл для перезапуска")
-                            return
-                    
+                    subprocess.Popen(
+                        [sys.executable, "-m", "faust_tool.userbot"],
+                        cwd=bot_dir
+                    )
                     sys.exit(0)
                 else:
                     await event.respond("Изменений нет, перезапуск не требуется.")
