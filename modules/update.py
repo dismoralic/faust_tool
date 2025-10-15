@@ -15,7 +15,7 @@ def register(client):
         
         current_file_dir = os.path.dirname(os.path.abspath(__file__))
         bot_dir = os.path.dirname(current_file_dir)
-        
+        package_root = os.path.dirname(bot_dir)
         temp_files = []
         
         try:
@@ -70,7 +70,6 @@ def register(client):
                         continue
                     
                     extract_path = os.path.join(extract_dir, relative_path)
-                    
                     os.makedirs(os.path.dirname(extract_path), exist_ok=True)
                     
                     with zip_ref.open(file_info) as source, open(extract_path, 'wb') as target:
@@ -106,23 +105,10 @@ def register(client):
             
             await event.edit("Обновление завершено! Перезапускаем бота...")
             
-            userbot_path = os.path.join(bot_dir, "userbot.py")
-            
-            if not os.path.exists(userbot_path):
-                if os.path.exists(backup_dir):
-                    for item in os.listdir(backup_dir):
-                        src_path = os.path.join(backup_dir, item)
-                        dst_path = os.path.join(bot_dir, item)
-                        if os.path.isdir(src_path):
-                            shutil.copytree(src_path, dst_path)
-                        else:
-                            shutil.copy2(src_path, dst_path)
-                raise Exception("Основной файл userbot.py не найден после обновления")
-            
-            subprocess.Popen([
-                sys.executable, 
-                userbot_path
-            ], cwd=bot_dir)
+            subprocess.Popen(
+                [sys.executable, "-m", "faust_tool.userbot"],
+                cwd=package_root
+            )
             
             await event.respond("Бот перезапускается...")
             
@@ -139,7 +125,6 @@ def register(client):
             await event.edit("Скачанный файл не является ZIP архивом")
         except Exception as e:
             await event.edit(f"Критическая ошибка: {e}")
-            
             try:
                 if 'backup_dir' in locals() and os.path.exists(backup_dir):
                     await event.edit("Восстанавливаем из бэкапа...")
