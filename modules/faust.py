@@ -1,73 +1,38 @@
 import os
-import subprocess
-import sys
+import time
 from telethon import events
 from telethon.tl.custom.message import Message
 
 def register(client):
-    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.update$'))
-    async def update_bot(event: Message):
-        await event.edit("Обновление клиента...")
+    @client.on(events.NewMessage(outgoing=True, pattern=r'^\.faust$'))
+    async def faust_cmd(event: Message):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(base_dir)
+        pictures_dir = os.path.join(project_root, 'pictures')
+        photo_path = os.path.join(pictures_dir, 'faust.jpg')
 
-        bot_dir = os.path.dirname(os.path.abspath(__file__))
-        if os.path.basename(bot_dir) == 'faust_tool':
-            bot_dir = os.path.dirname(bot_dir)
-        
-        await event.edit(f"Рабочая директория: {bot_dir}")
-        
-        if not os.path.exists(os.path.join(bot_dir, ".git")):
-            await event.edit("Бот не привязан к репозиторию.")
-            return
+        start = time.perf_counter()
 
-        try:
-            fetch = subprocess.run(
-                ["git", "fetch", "origin"],
-                cwd=bot_dir,
-                capture_output=True,
-                text=True
+        if os.path.exists(photo_path):
+            sent = await client.send_file(
+                event.chat_id,
+                photo_path,
+                caption="Отправляю фото..."
             )
-            if fetch.returncode != 0:
-                await event.edit(f"Ошибка при получении обновлений:\n<code>{fetch.stderr}</code>", parse_mode="html")
-                return
+        else:
+            sent = await event.respond("Фото faust.jpg не найдено в папке pictures")
 
-            pull = subprocess.run(
-                ["git", "pull", "origin", "main", "--ff-only"],
-                cwd=bot_dir,
-                capture_output=True,
-                text=True
-            )
+        ping_ms = (time.perf_counter() - start) * 1000
 
-            if pull.returncode != 0 and "would be overwritten" in pull.stderr:
-                await event.edit("Обнаружены локальные изменения, выполняется сброс...")
-                subprocess.run(["git", "reset", "--hard", "HEAD"], cwd=bot_dir)
-                pull = subprocess.run(
-                    ["git", "pull", "origin", "main", "--ff-only"],
-                    cwd=bot_dir,
-                    capture_output=True,
-                    text=True
-                )
+        text = (
+            "𝕱𝖆𝖚𝖘𝖙-𝕿𝖔𝖔𝖑 2\n"
+            "FTG + Native modules userbot client.\n"
+            "Version: 1.0.0\n\n"
+            f"Ping: {ping_ms:.2f} ms\n\n"
+            "Only those who will risk going too far can possibly find out how far one can go\n\n"
+            "Dev: @angel_xranytel\n\n"
+            "Channel: @bio_faust\n\n"
+        )
 
-            if pull.returncode == 0:
-                msg = pull.stdout.strip() or "Репозиторий обновлён."
-                await event.edit(f"Обновление завершено:\n\n<code>{msg}</code>", parse_mode="html")
-
-                if "Already up to date" not in msg:
-                    await event.respond("Перезапуск бота...")
-                    
-                    userbot_path = os.path.join(bot_dir, "faust_tool", "userbot.py")
-                    
-                    await event.respond(f"Запуск из: {userbot_path}")
-                    
-                    subprocess.Popen(
-                        [sys.executable, userbot_path],
-                        cwd=bot_dir
-                    )
-                    sys.exit(0)
-                else:
-                    await event.respond("Изменений нет, перезапуск не требуется.")
-            else:
-                err = pull.stderr.strip() or "Неизвестная ошибка при git pull."
-                await event.edit(f"Ошибка при обновлении:\n\n<code>{err}</code>", parse_mode="html")
-
-        except Exception as e:
-            await event.edit(f"Ошибка выполнения git pull:\n<code>{e}</code>", parse_mode="html")
+        await sent.edit(text)
+        await event.delete()
