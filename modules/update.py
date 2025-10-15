@@ -10,10 +10,10 @@ def register(client):
         await event.edit("Обновление клиента...")
 
         current_file_dir = os.path.dirname(os.path.abspath(__file__))
-        bot_dir = os.path.dirname(current_file_dir)
-        
+        bot_dir = os.path.abspath(os.path.join(current_file_dir, "..", ".."))
+
         await event.edit(f"Корень репозитория: {bot_dir}")
-        
+
         git_dir = os.path.join(bot_dir, ".git")
         if not os.path.exists(git_dir):
             await event.edit(f"Бот не привязан к репозиторию. .git не найден в: {git_dir}")
@@ -53,13 +53,8 @@ def register(client):
 
                 if "Already up to date" not in msg:
                     await event.respond("Перезапуск бота...")
-                    
                     userbot_path = os.path.join(bot_dir, "userbot.py")
-                    
-                    subprocess.Popen(
-                        [sys.executable, userbot_path],
-                        cwd=bot_dir
-                    )
+                    subprocess.Popen([sys.executable, userbot_path], cwd=bot_dir)
                     sys.exit(0)
                 else:
                     await event.respond("Изменений нет, перезапуск не требуется.")
