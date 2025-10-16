@@ -15,7 +15,7 @@ def register(client):
         
         current_file_dir = os.path.dirname(os.path.abspath(__file__))
         bot_dir = os.path.dirname(current_file_dir)
-        package_root = bot_dir
+        package_root = os.path.dirname(bot_dir) if os.path.basename(bot_dir) == 'faust_tool' else bot_dir
         temp_files = []
         
         try:
@@ -108,10 +108,14 @@ def register(client):
             
             await event.edit("Обновление завершено! Перезапускаем бота...")
             
-            subprocess.Popen(
-                [sys.executable, "-m", "faust_tool.userbot"],
-                cwd=package_root
-            )
+            if os.path.exists(os.path.join(package_root, "faust_tool")):
+                restart_cmd = [sys.executable, "-m", "faust_tool.userbot"]
+                cwd = package_root
+            else:
+                restart_cmd = [sys.executable, "-m", "userbot"] 
+                cwd = bot_dir
+            
+            subprocess.Popen(restart_cmd, cwd=cwd)
             
             await event.respond("Бот перезапускается...")
             
@@ -153,7 +157,3 @@ def register(client):
                         shutil.rmtree(temp_file)
                 except:
                     pass
-                        shutil.rmtree(temp_file)
-                except:
-                    pass
-
