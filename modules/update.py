@@ -15,7 +15,7 @@ def register(client):
         
         current_file_dir = os.path.dirname(os.path.abspath(__file__))
         bot_dir = os.path.dirname(current_file_dir)
-        package_root = os.path.dirname(bot_dir)
+        package_root = bot_dir
         temp_files = []
         
         try:
@@ -80,7 +80,7 @@ def register(client):
             backup_dir = os.path.join(temp_dir, "backup")
             os.makedirs(backup_dir)
             
-            exclude_items = {'__pycache__', '.git', 'temp_update', 'backup', '.vscode'}
+            exclude_items = {'__pycache__', '.git', 'temp_update', 'backup', '.vscode', 'sessions'}
             
             for item in os.listdir(extract_dir):
                 if item in exclude_items:
@@ -88,6 +88,9 @@ def register(client):
                 
                 src_path = os.path.join(extract_dir, item)
                 dst_path = os.path.join(bot_dir, item)
+                
+                if item == 'sessions':
+                    continue
                 
                 if os.path.exists(dst_path):
                     backup_path = os.path.join(backup_dir, item)
@@ -131,6 +134,8 @@ def register(client):
                     for item in os.listdir(backup_dir):
                         src_path = os.path.join(backup_dir, item)
                         dst_path = os.path.join(bot_dir, item)
+                        if item == 'sessions':
+                            continue
                         if os.path.isdir(src_path):
                             if os.path.exists(dst_path):
                                 shutil.rmtree(dst_path)
@@ -148,3 +153,7 @@ def register(client):
                         shutil.rmtree(temp_file)
                 except:
                     pass
+                        shutil.rmtree(temp_file)
+                except:
+                    pass
+
