@@ -22,7 +22,10 @@ def _load_state() -> dict:
                     return {**DEFAULT_STATE, **data}
         except Exception:
             pass
-    return DEFAULT_STATE.copy()
+    
+    state = DEFAULT_STATE.copy()
+    _save_state(state)
+    return state
 
 def _save_state(state: dict):
     try:
