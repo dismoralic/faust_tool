@@ -99,10 +99,14 @@ async def dlmod_cmd(event):
 
         save_path = os.path.join(folder, filename)
 
-        r = requests.get(url, timeout=15)
-        r.raise_for_status()
-        with open(save_path, "wb") as f:
-            f.write(r.content)
+        try:
+            r = requests.get(url, timeout=15)
+            r.raise_for_status()
+            with open(save_path, "wb") as f:
+                f.write(r.content)
+        except:
+            return await event.edit("Ошибка загрузки файла")
+
     else:
         return await event.edit("Укажи ссылку или ответь на файл .py")
 
@@ -117,8 +121,8 @@ async def dlmod_cmd(event):
         else:
             load_ftg_module(save_path, client)
             await event.edit(f"FTG-модуль `{filename}` установлен и перезагружен")
-    except Exception as e:
-        await event.edit(f"Ошибка при загрузке модуля `{filename}`:\n`{e}`")
+    except:
+        await event.edit(f"Ошибка при загрузке модуля `{filename}`")
 
 if __name__ == "__main__":
     client.start()
@@ -129,8 +133,8 @@ if __name__ == "__main__":
         with open(SESSION_FILE, "w", encoding="utf-8") as f:
             f.write(session_string)
         print(f"[FAUST] Сессия сохранена в {SESSION_FILE}")
-    except Exception as e:
-        print(f"[FAUST] Не удалось сохранить сессию: {e}")
+    except:
+        pass
 
     load_builtin_modules(client)
     load_all_native_modules(client)
