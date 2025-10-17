@@ -15,6 +15,7 @@ from faust_tool.core.loader import (
     load_ftg_module,
     load_native_module,
 )
+from faust_tool.ai import state
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -136,8 +137,20 @@ if __name__ == "__main__":
     except:
         pass
 
+    try:
+        me = client.get_me()
+        if me:
+            state.set_account_user_id(me.id)
+            print(f"[FAUST] ID аккаунта установлен: {me.id}")
+    except:
+        print("[FAUST] Ошибка установки ID аккаунта")
+
     load_builtin_modules(client)
     load_all_native_modules(client)
     load_all_ftg_modules(client)
 
     client.run_until_disconnected()
+    load_all_ftg_modules(client)
+
+    client.run_until_disconnected()
+
