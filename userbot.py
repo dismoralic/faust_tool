@@ -142,15 +142,11 @@ if __name__ == "__main__":
         if me:
             state.set_account_user_id(me.id)
             print(f"[FAUST] ID аккаунта установлен: {me.id}")
-    except:
-        print("[FAUST] Ошибка установки ID аккаунта")
+    except Exception as e:
+        print(f"[FAUST] Ошибка установки ID аккаунта: {e}")
 
     load_builtin_modules(client)
     load_all_native_modules(client)
     load_all_ftg_modules(client)
 
     client.run_until_disconnected()
-    load_all_ftg_modules(client)
-
-    client.run_until_disconnected()
-
