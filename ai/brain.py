@@ -1,7 +1,6 @@
 import os
 import json
 import time
-import logging
 import asyncio
 import re
 from difflib import SequenceMatcher
@@ -9,7 +8,6 @@ from functools import lru_cache
 from typing import Optional, Tuple, Dict, List, Any
 from dataclasses import dataclass
 import aiohttp
-from datetime import datetime
 import hashlib
 
 from ai.history import load_history, add_entry, history_to_text
@@ -22,14 +20,6 @@ FAQ_PATH = os.getenv("FAUST_FAQ_PATH", os.path.join(BASE_DIR, "faq.json"))
 OLLAMA_MODEL = os.getenv("FAUST_OLLAMA_MODEL", "gemma3:1b")
 OLLAMA_TIMEOUT = float(os.getenv("FAUST_OLLAMA_TIMEOUT", "30"))
 OLLAMA_URL = os.getenv("FAUST_OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
-
-logger = logging.getLogger("faust_assistant")
-if not logger.handlers:
-    logger.setLevel(logging.INFO)
-    fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-    ch = logging.StreamHandler()
-    ch.setFormatter(fmt)
-    logger.addHandler(ch)
 
 @dataclass
 class UserContext:
@@ -55,7 +45,6 @@ class EnhancedConversationMemory:
             return {}
         
         analysis = {
-            'frequent_topics': self._extract_topics(history),
             'communication_style': self._analyze_communication_style(history),
             'preferred_subjects': self._find_preferred_subjects(history),
             'temporal_patterns': self._analyze_temporal_patterns(history),
@@ -63,24 +52,6 @@ class EnhancedConversationMemory:
         }
         
         return analysis
-    
-    def _extract_topics(self, history: List[Dict]) -> List[str]:
-        topics = []
-        topic_keywords = {
-            'работа': ['работа', 'проект', 'задача', 'начальник', 'коллега'],
-            'техника': ['компьютер', 'телефон', 'интернет', 'программа', 'приложение'],
-            'личное': ['семья', 'друзья', 'отношения', 'дом', 'квартира'],
-            'хобби': ['хобби', 'увлечение', 'спорт', 'кино', 'музыка', 'книги'],
-            'помощь': ['помоги', 'помощь', 'вопрос', 'проблема', 'решить']
-        }
-        
-        for entry in history[-10:]:
-            text = (entry.get('prompt', '') + ' ' + entry.get('response', '')).lower()
-            for topic, keywords in topic_keywords.items():
-                if any(keyword in text for keyword in keywords) and topic not in topics:
-                    topics.append(topic)
-        
-        return topics
     
     def _analyze_communication_style(self, history: List[Dict]) -> str:
         if len(history) < 3:
@@ -104,12 +75,9 @@ class EnhancedConversationMemory:
     
     def _find_preferred_subjects(self, history: List[Dict]) -> List[str]:
         subjects = []
-        question_patterns = []
         
         for entry in history[-8:]:
             prompt = entry.get('prompt', '').lower()
-            if '?' in prompt:
-                question_patterns.append(prompt)
             
             if any(word in prompt for word in ['расскажи', 'знаешь', 'интересно']):
                 subject = re.sub(r'.*(расскажи|знаешь|интересно)\s+о?\s*', '', prompt)
@@ -196,13 +164,7 @@ def _load_faq_raw() -> dict:
                 if not content:
                     return {}
                 return json.loads(content)
-        except json.JSONDecodeError as e:
-            logger.warning(f"FAQ JSON decode error (attempt {attempt+1}): {e}")
-            if attempt == max_retries - 1:
-                return {}
-            time.sleep(0.1)
-        except Exception as e:
-            logger.warning(f"FAQ load error (attempt {attempt+1}): {e}")
+        except:
             if attempt == max_retries - 1:
                 return {}
             time.sleep(0.1)
@@ -252,7 +214,6 @@ def enhanced_local_match(prompt: str, user_context: UserContext) -> Tuple[Option
     best_score = 0.0
     match_context = {"match_type": "semantic", "context_boost": 0.0}
     
-    user_topics = user_context.facts.get('frequent_topics', [])
     user_style = user_context.facts.get('communication_style', 'нейтральный')
     
     for question, answer in faq_data.items():
@@ -260,11 +221,6 @@ def enhanced_local_match(prompt: str, user_context: UserContext) -> Tuple[Option
         
         context_boost = 0.0
         question_lower = question.lower()
-        
-        for topic in user_topics:
-            if topic in question_lower:
-                context_boost += 0.1
-                break
         
         if user_style == "формальный" and any(word in question_lower for word in ['пожалуйста', 'будьте', 'извините']):
             context_boost += 0.05
@@ -300,6 +256,15 @@ def robust_clean_response(text: str) -> str:
     
     if not text or len(text) < 2:
         return "Не совсем понял. Можете переформулировать?"
+    
+    meaningless_responses = ['понял', 'ясно', 'ок', 'хорошо', 'ладно', 'ok', 'okay', 'ага', 'угу', 'да', 'нет']
+    text_lower = text.lower().strip('.,!? ')
+    
+    if text_lower in meaningless_responses:
+        return "Можете уточнить ваш вопрос или рассказать подробнее?"
+    
+    if len(text.split()) <= 3 and any(word in text_lower for word in ['понятно', 'ясно', 'окей', 'хорошо', 'ладно']):
+        return "Расскажите подробнее, что именно вас интересует?"
     
     return text
 
@@ -343,7 +308,12 @@ async def resilient_ollama_call(system_prompt: str, user_prompt: str, conversati
         if history_lines:
             history_context = "\n".join(history_lines[-8:])
     
-    full_prompt = f"{system_prompt}"
+    strict_warning = """
+ВАЖНО: НИКОГДА не отвечай односложно! Запрещены ответы: 'Понял', 'Ясно', 'ОК', 'Хорошо', 'Ладно', 'Ага', 'Угу', 'Да', 'Нет'.
+Всегда давай развернутый ответ минимум из 2 предложений.
+"""
+    
+    full_prompt = f"{system_prompt}\n{strict_warning}"
     if history_context:
         full_prompt += f"\n\nИстория:\n{history_context}"
     full_prompt += f"\n\nП: {user_prompt}\nО:"
@@ -370,17 +340,8 @@ async def resilient_ollama_call(system_prompt: str, user_prompt: str, conversati
                     response_text = data.get("response", "").strip()
                     if response_text:
                         return response_text
-                elif response.status == 503:
-                    logger.warning(f"Ollama service unavailable, attempt {attempt + 1}")
-                else:
-                    logger.warning(f"Ollama HTTP error {response.status}, attempt {attempt + 1}")
-        
-        except asyncio.TimeoutError:
-            logger.warning(f"Ollama timeout, attempt {attempt + 1}")
-        except aiohttp.ClientError as e:
-            logger.warning(f"Ollama connection error: {e}, attempt {attempt + 1}")
-        except Exception as e:
-            logger.warning(f"Unexpected Ollama error: {e}, attempt {attempt + 1}")
+        except:
+            pass
         
         if attempt < max_retries - 1:
             await asyncio.sleep(base_delay * (2 ** attempt))
@@ -389,29 +350,40 @@ async def resilient_ollama_call(system_prompt: str, user_prompt: str, conversati
 
 def advanced_name_extraction(prompt: str) -> Optional[str]:
     patterns = [
-        r"(?:меня\s+зовут\s+)([а-яёa-z]{2,}(?:\s+[а-яёa-z]{2,})?)",
-        r"(?:я\s+)([а-яёa-z]{2,}(?:\s+[а-яёa-z]{2,})?)(?:\s|$|\.|,)",
-        r"(?:зовут\s+)([а-яёa-z]{2,}(?:\s+[а-яёa-z]{2,})?)",
-        r"(?:мое\s+имя\s+)([а-яёa-z]{2,}(?:\s+[а-яёa-z]{2,})?)",
-        r"(?:имя\s+)([а-яёa-z]{2,}(?:\s+[а-яёa-z]{2,})?)(?:\s|$|\.|,)"
+        r'(?:меня\s+зовут\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)',
+        r'(?:мое\s+имя\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)',
+        r'(?:зовут\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)',
+        r'(?:имя\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)(?:\s|$|\.|,)',
+        r'(?:я\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)(?:\s|$|\.|,)',
+        r'(?:это\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)(?:\s|$|\.|,)',
+        r'(?:представься\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)',
     ]
     
+    prompt_lower = prompt.lower()
+    
     for pattern in patterns:
-        match = re.search(pattern, prompt.lower())
+        match = re.search(pattern, prompt_lower)
         if match:
-            name = match.group(1).strip().title()
-            name = re.sub(r'\b(зовут|меня|я|мое|имя|это)\b', '', name, flags=re.IGNORECASE).strip()
-            if len(name) > 1 and not name.isspace():
-                return name
+            name = match.group(1).strip()
+            name = re.sub(r'\b(зовут|меня|я|мое|имя|это|представься|меня\s+зовут|мое\s+имя)\b', '', 
+                         name, flags=re.IGNORECASE).strip()
+            
+            if (len(name) >= 2 and len(name) <= 50 and 
+                re.match(r'^[А-ЯЁа-яёA-Za-z\s\-]+$', name) and
+                not name.isspace()):
+                return name.title()
     
     return None
 
-async def enhanced_user_info_extraction(prompt: str, response: str, history: List[Dict]) -> Dict[str, List[str]]:
-    facts = []
-    
+def extract_and_save_name(prompt: str, user_id: str) -> bool:
     name = advanced_name_extraction(prompt)
     if name:
-        facts.append(f"имя: {name}")
+        set_user_name(user_id, name)
+        return True
+    return False
+
+async def enhanced_user_info_extraction(prompt: str, response: str, history: List[Dict]) -> Dict[str, List[str]]:
+    facts = []
     
     location_matches = re.findall(r'(?:живу|город|город|в)\s+([а-яё\w\s]{3,}?(?=\s|\.|$|,))', prompt.lower())
     for location in location_matches[:1]:
@@ -447,49 +419,62 @@ def build_adaptive_system_prompt(user_facts: str, history: List[Dict], user_id: 
         user_context.last_updated = time.time()
     
     parts = []
-    parts.append("Ты - полезный ассистент. Отвечай естественно, по делу, учитывая контекст.")
+    parts.append("Ты - полезный ассистент. Всегда давай развернутые и содержательные ответы.")
+    
+    parts.append("НИКОГДА не отвечай односложно словами типа 'Понял', 'Ясно', 'ОК', 'Хорошо', 'Ладно', 'Ага', 'Угу'.")
+    parts.append("Даже если вопрос простой - дай информативный ответ.")
+    parts.append("Если соглашаешься с чем-то - объясни почему или предложи дальнейшие действия.")
+    parts.append("Если подтверждаешь что-то - добавь полезную информацию или уточняющий вопрос.")
     
     if is_owner:
-        greeting = f"Общаешься с создателем {owner_name}." if owner_name else "Общаешься с создателем."
-        parts.append(greeting)
+        if owner_name:
+            parts.append(f"Ты общаешься со своим создателем {owner_name}. Относись к нему с уважением.")
+        else:
+            parts.append("Ты общаешься со своим создателем. Относись к нему с уважением.")
     else:
+        if user_name:
+            parts.append(f"Сейчас ты общаешься с {user_name}. Используй это имя в разговоре.")
+        
         if user_facts:
-            parts.append(f"Информация о собеседнике: {user_facts}")
+            parts.append(f"Дополнительная информация о собеседнике: {user_facts}")
         
         if user_context.facts.get('communication_style'):
             style = user_context.facts['communication_style']
             if style == "формальный":
-                parts.append("Собеседник предпочитает формальное общение.")
+                parts.append("Собеседник предпочитает формальное общение - используйте вежливую форму.")
             elif style == "неформальный":
-                parts.append("Собеседник предпочитает неформальное общение.")
+                parts.append("Собеседник предпочитает неформальное общение - можно использовать более простой язык.")
     
     knowledge_text = knowledge.knowledge_to_text()
     if knowledge_text:
         parts.append(f"База знаний: {knowledge_text}")
     
-    if user_context.facts.get('frequent_topics'):
-        topics = ", ".join(user_context.facts['frequent_topics'][:3])
-        parts.append(f"Частые темы собеседника: {topics}")
+    if user_context.facts.get('preferred_subjects'):
+        subjects = ", ".join(user_context.facts['preferred_subjects'][:3])
+        parts.append(f"Ранее собеседник интересовался: {subjects}")
     
     if user_context.facts.get('sentiment_trend'):
         sentiment = user_context.facts['sentiment_trend']
         if sentiment == "позитивный":
-            parts.append("Собеседник в позитивном настроении.")
+            parts.append("Собеседник в хорошем настроении.")
         elif sentiment == "негативный":
-            parts.append("Собеседник в негативном настроении - будь особенно тактичен.")
+            parts.append("Собеседник расстроен - будь особенно тактичен и поддерживающим.")
     
     parts.extend([
-        "Будь кратким и точным.",
+        "Отвечай развернуто, но по делу.",
+        "Минимальная длина ответа - 2 полноценных предложения.",
         "Не придумывай информацию, если не уверен.",
-        "Если не знаешь ответа - честно скажи об этом.",
-        "Учитывай стиль общения собеседника."
+        "Если не знаешь ответа - честно скажи об этом и предложи помощь в другом.",
+        "Если узнал имя собеседника - используй его в ответах для персонализации.",
+        "Будь естественным в общении, как живой собеседник.",
+        "Всегда старайся добавить ценность в разговор, даже если вопрос кажется простым."
     ])
     
     return "\n".join(parts)
 
 async def analyze(prompt: str, user_id: str, timeout: float = OLLAMA_TIMEOUT, user_display_name: str = "") -> str:
     try:
-        uid = user_id.split('_')[-1] if '_' in user_id else user_id
+        uid = user_id
         is_owner_user = state.is_owner(uid)
         
         context_hash = hashlib.md5(f"{uid}_{is_owner_user}".encode()).hexdigest()[:8]
@@ -499,26 +484,36 @@ async def analyze(prompt: str, user_id: str, timeout: float = OLLAMA_TIMEOUT, us
         
         prompt_clean = prompt.strip()
         if not prompt_clean or len(prompt_clean) < 1:
-            return "Не понял ваш запрос."
+            return "Не понял ваш запрос. Можете повторить?"
         
         prompt_lower = prompt_clean.lower()
         
         if any(cmd in prompt_lower for cmd in ["как меня зовут", "мое имя", "кто я", "my name", "who am i"]):
             if is_owner_user:
                 owner_name = state.get_owner_name()
-                return f"Вы {owner_name}." if owner_name else "Не знаю вашего имени."
+                return f"Вы {owner_name} - мой создатель. Чем могу помочь вам сегодня?" if owner_name else "Я знаю что вы мой создатель, но не знаю вашего имени. Можете представиться?"
             else:
                 user_name = get_user_name(uid)
-                return f"Вас зовут {user_name}." if user_name else "Не знаю вашего имени."
+                if user_name:
+                    return f"Вас зовут {user_name}. Рад быть вашим помощником! Чем могу помочь?"
+                else:
+                    if extract_and_save_name(prompt, uid):
+                        user_name = get_user_name(uid)
+                        return f"Теперь я знаю что вас зовут {user_name}. Рад познакомиться! Чем могу помочь?"
+                    else:
+                        return "Я еще не знаю вашего имени. Можете представиться? Это поможет сделать наше общение более персонализированным."
         
         if any(cmd in prompt_lower for cmd in ["кто ты", "представься", "твое имя", "who are you", "introduce yourself"]):
-            return "Я ассистент, готовый помочь."
+            owner_name = state.get_owner_name()
+            if owner_name and is_owner_user:
+                return f"Я ваш ассистент, созданный чтобы помогать вам, {owner_name}. Готов ответить на любые ваши вопросы и помочь с задачами."
+            else:
+                return "Я ваш персональный ассистент, готовый помочь с различными вопросами. Могу помочь с информацией, задачами или просто поддержать беседу."
         
         current_name = get_user_name(uid)
         if not current_name:
-            extracted_name = advanced_name_extraction(prompt)
-            if extracted_name:
-                set_user_name(uid, extracted_name)
+            if extract_and_save_name(prompt, uid):
+                current_name = get_user_name(uid)
         
         handled_state, resp_state = state.process_state_command(prompt, uid)
         if handled_state:
@@ -546,8 +541,7 @@ async def analyze(prompt: str, user_id: str, timeout: float = OLLAMA_TIMEOUT, us
             facts_data = load_facts(uid)
             facts_text = facts_to_text(facts_data)
             current_user_name = get_user_name(uid)
-        except Exception as e:
-            logger.warning(f"Error loading history/facts: {e}")
+        except:
             history_entries = []
             facts_text = ""
             current_user_name = ""
@@ -558,11 +552,16 @@ async def analyze(prompt: str, user_id: str, timeout: float = OLLAMA_TIMEOUT, us
         raw_response = await resilient_ollama_call(system_prompt, prompt, history_entries, timeout)
         resp_text = robust_clean_response(raw_response)
         
+        if len(resp_text.split()) <= 4 and any(word in resp_text.lower() for word in ['понял', 'ясно', 'ок', 'хорошо', 'ладно']):
+            stricter_system_prompt = system_prompt + "\n\nВАЖНО: Ответ должен быть развернутым минимум 2-3 предложениями. Запрещены односложные ответы!"
+            raw_response = await resilient_ollama_call(stricter_system_prompt, prompt, history_entries, timeout)
+            resp_text = robust_clean_response(raw_response)
+        
         if not resp_text or resp_text == "Не совсем понял. Можете переформулировать?":
             if score >= 0.6:
-                resp_text = faq_data.get(q, "Не могу найти подходящий ответ.")
+                resp_text = faq_data.get(q, "Не могу найти подходящий ответ в базе знаний. Можете уточнить вопрос?")
             else:
-                resp_text = "Извините, не совсем понял вопрос. Можете переформулировать?"
+                resp_text = "Извините, не совсем понял ваш вопрос. Можете переформулировать его или задать более конкретно?"
         
         add_entry(uid, prompt, resp_text)
         _add_to_cache(prompt, uid, resp_text, context_hash)
@@ -571,9 +570,8 @@ async def analyze(prompt: str, user_id: str, timeout: float = OLLAMA_TIMEOUT, us
         
         return resp_text
     
-    except Exception as e:
-        logger.error(f"Critical error in analyze: {e}")
-        return "Произошла внутренняя ошибка. Пожалуйста, попробуйте еще раз."
+    except Exception:
+        return "Произошла внутренняя ошибка при обработке запроса. Пожалуйста, попробуйте задать вопрос еще раз."
         
 async def enhanced_user_info_update(uid, prompt, resp_text, history_entries):
     try:
@@ -587,18 +585,16 @@ async def enhanced_user_info_update(uid, prompt, resp_text, history_entries):
             analysis = conversation_memory.analyze_conversation_patterns(history_entries)
             user_context.facts.update(analysis)
             user_context.last_updated = time.time()
-    except Exception as e:
-        logger.debug(f"User info update error: {e}")
+    except:
+        pass
 
 async def resilient_cleanup():
     global _session
     if _session and not _session.closed:
         try:
             await asyncio.wait_for(_session.close(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except:
             pass
-        except Exception as e:
-            logger.debug(f"Session close error: {e}")
 
 def register(client):
     return True
