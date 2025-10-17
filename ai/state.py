@@ -9,7 +9,8 @@ STATE_FILE = os.path.join(BASE_DIR, "state.json")
 DEFAULT_STATE = {
     "owner_id": None,
     "owner_name": "",
-    "auto_reply": True
+    "auto_reply": True,
+    "account_user_id": None
 }
 
 def _load_state() -> dict:
@@ -30,13 +31,17 @@ def _save_state(state: dict):
     except Exception:
         pass
 
+def set_account_user_id(user_id: int):
+    state = _load_state()
+    state["account_user_id"] = int(user_id)
+    _save_state(state)
+
 def get_owner_id() -> int | None:
-    return _load_state().get("owner_id")
+    state = _load_state()
+    return state.get("account_user_id")
 
 def set_owner_id(owner_id: int):
-    state = _load_state()
-    state["owner_id"] = int(owner_id)
-    _save_state(state)
+    pass
 
 def get_owner_name() -> str:
     return _load_state().get("owner_name", "")
@@ -55,10 +60,10 @@ def set_auto_reply(flag: bool):
     _save_state(state)
 
 def is_owner(user_id: int | str) -> bool:
-    owner_id = get_owner_id()
-    if owner_id is None:
+    account_user_id = _load_state().get("account_user_id")
+    if account_user_id is None:
         return False
-    return str(user_id) == str(owner_id)
+    return str(user_id) == str(account_user_id)
 
 def _is_management_command(text: str) -> bool:
     patterns = [
@@ -93,7 +98,7 @@ def process_state_command(prompt: str, user_id: int | str = None) -> tuple[bool,
         return False, ""
     
     if user_id is not None and not is_owner(user_id):
-        return True, "Отказано в доступе. Только владелец может выполнять команды."
+        return True, "Отказано в доступе. Только владелец аккаунта может выполнять команды."
 
     if re.search(r"добавь.*базу.*?([^:]+):\s*(.+)", text, re.IGNORECASE):
         match = re.search(r"добавь.*базу.*?([^:]+):\s*(.+)", text, re.IGNORECASE)
@@ -154,24 +159,26 @@ def process_state_command(prompt: str, user_id: int | str = None) -> tuple[bool,
 
     if re.search(r"(настройки|settings|config)", text, re.IGNORECASE):
         auto_reply = "включен" if is_auto_reply() else "выключен"
+        account_id = _load_state().get("account_user_id")
         
         settings_text = f"""
 Текущие настройки:
 
 Автоответ: {auto_reply}
-Владелец: {get_owner_name() or 'не установлен'}
+ID аккаунта: {account_id or 'не установлен'}
+Имя владельца: {get_owner_name() or 'не установлено'}
         """
         return True, settings_text.strip()
 
     if re.search(r"(мой.*профиль|my.*profile|who.*am.*i)", text, re.IGNORECASE):
         owner_name = get_owner_name()
-        owner_id = get_owner_id()
+        account_id = _load_state().get("account_user_id")
         auto_reply = "включен" if is_auto_reply() else "выключен"
         
         profile_text = f"""
 Ваш профиль:
 
-ID: {owner_id or 'не установлен'}
+ID аккаунта: {account_id or 'не установлен'}
 Имя: {owner_name or 'не установлено'}
 Автоответ: {auto_reply}
         """
@@ -179,12 +186,12 @@ ID: {owner_id or 'не установлен'}
 
     if re.search(r"(очисти|сброс|reset).*настройки", text, re.IGNORECASE):
         state = _load_state()
-        owner_id = state.get('owner_id')
+        account_id = state.get('account_user_id')
         state = DEFAULT_STATE.copy()
-        if owner_id:
-            state['owner_id'] = owner_id
+        if account_id:
+            state['account_user_id'] = account_id
         _save_state(state)
-        return True, "Настройки сброшены к значениям по умолчанию"
+        return True, "Настройки сброшены к значениям по умолчанию (кроме ID аккаунта)"
 
     if re.search(r"(помощь|help|команды)", text, re.IGNORECASE):
         help_text = """
@@ -201,7 +208,7 @@ ID: {owner_id or 'не установлен'}
 
 База знаний:
 добавь в базу [категория]: [информация]
-удали из базы [категория]: [информация]
+удали из базу [категория]: [информация]
 покажи базу знаний - показать всю базу
 
 Система:
