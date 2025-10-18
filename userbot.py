@@ -1,8 +1,9 @@
 import json
 import random
 import os
-import requests
 import sys
+import asyncio
+import requests
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.tl.custom.message import Message
@@ -11,11 +12,11 @@ from faust_tool.core.loader import (
     load_all_ftg_modules,
     load_all_native_modules,
     load_builtin_modules,
-    get_loaded_modules,
     load_ftg_module,
     load_native_module,
 )
 from faust_tool.ai import state
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -44,7 +45,7 @@ DEVICE_MODELS = [
     "Huawei Mate 40 Pro",
     "Google Pixel 6 Pro",
     "OnePlus 9 Pro",
-    "Realme GT Neo 3"
+    "Realme GT Neo 3",
 ]
 device_model = random.choice(DEVICE_MODELS)
 
@@ -54,6 +55,7 @@ if os.path.exists(SESSION_FILE):
     session = StringSession(session_str)
 else:
     session = StringSession()
+
 
 client = TelegramClient(
     session,
@@ -74,7 +76,7 @@ async def edit_html(self, text=None, **kwargs):
 Message.edit = edit_html
 
 @client.on(events.NewMessage(pattern=r"^\.dlmod(?:\s+(native))?(?:\s+(.+))?$"))
-async def dlmod_cmd(event):
+async def dlmod_cmd(event: Message):
     args = event.pattern_match.group(2)
     native_flag = event.pattern_match.group(1) is not None
 
@@ -97,16 +99,16 @@ async def dlmod_cmd(event):
         filename = url.split("/")[-1]
         if not filename.endswith(".py"):
             filename += ".py"
-
         save_path = os.path.join(folder, filename)
 
         try:
             r = requests.get(url, timeout=15)
-            r.raise_for_status()
+            if "text/html" in r.headers.get("Content-Type", ""):
+                return await event.edit("Ссылка ведёт не на .py файл.")
             with open(save_path, "wb") as f:
                 f.write(r.content)
-        except:
-            return await event.edit("Ошибка загрузки файла")
+        except Exception as e:
+            return await event.edit(f"Ошибка загрузки файла: {e}")
 
     else:
         return await event.edit("Укажи ссылку или ответь на файл .py")
@@ -118,35 +120,41 @@ async def dlmod_cmd(event):
     try:
         if native_flag:
             load_native_module(save_path, client)
-            await event.edit(f"Нативный модуль `{filename}` установлен и перезагружен")
+            await event.edit(f"Нативный модуль `{filename}` установлен и перезагружен.")
         else:
             load_ftg_module(save_path, client)
-            await event.edit(f"FTG-модуль `{filename}` установлен и перезагружен")
-    except:
-        await event.edit(f"Ошибка при загрузке модуля `{filename}`")
+            await event.edit(f"FTG-модуль `{filename}` установлен и перезагружен.")
+    except Exception as e:
+        await event.edit(f"Ошибка при загрузке модуля `{filename}`:\n<code>{e}</code>")
 
-if __name__ == "__main__":
-    client.start()
+async def main():
+    await client.start()
     print("[FAUST] Юзербот запущен!")
 
-    try:
-        session_string = client.session.save()
-        with open(SESSION_FILE, "w", encoding="utf-8") as f:
-            f.write(session_string)
-        print(f"[FAUST] Сессия сохранена в {SESSION_FILE}")
-    except:
-        pass
+    session_string = client.session.save()
+    with open(SESSION_FILE, "w", encoding="utf-8") as f:
+        f.write(session_string)
+    print(f"[FAUST] Сессия сохранена в {SESSION_FILE}")
 
     try:
-        me = client.get_me()
-        if me:
-            state.set_account_user_id(me.id)
-            print(f"[FAUST] ID аккаунта установлен: {me.id}")
+        me = await client.get_me()
+        state.set_account_user_id(me.id)
+        print(f"[FAUST] ID аккаунта установлен: {me.id}")
     except Exception as e:
-        print(f"[FAUST] Ошибка установки ID аккаунта: {e}")
+        print(f"[FAUST] Ошибка получения аккаунта: {e}")
 
     load_builtin_modules(client)
     load_all_native_modules(client)
     load_all_ftg_modules(client)
 
-    client.run_until_disconnected()
+    print("[FAUST] Все модули успешно загружены.")
+    print("[FAUST] Ожидание событий...")
+
+    await client.run_until_disconnected()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n[FAUST] Остановлен пользователем.")
