@@ -44,7 +44,9 @@ def get_owner_id() -> int | None:
     return state.get("account_user_id")
 
 def set_owner_id(owner_id: int):
-    pass
+    state = _load_state()
+    state["account_user_id"] = int(owner_id)
+    _save_state(state)
 
 def get_owner_name() -> str:
     return _load_state().get("owner_name", "")
