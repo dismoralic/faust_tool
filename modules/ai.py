@@ -1,76 +1,94 @@
-import io
-import requests
+import logging
 import asyncio
-from g4f.client import Client as G4FClient
-from faust_tool.core.loader import register_command
+import os
+from pathlib import Path
+from telethon import events
+from telethon.tl.custom.message import Message
+from faust_tool.ai import brain
+from faust_tool.ai import state
 
-g4f_client = G4FClient()
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/115.0 Safari/537.36",
-    "Accept": "application/json",
-}
-
-async def generate_chat_response(question: str) -> str:
-    try:
-        response = await asyncio.to_thread(
-            lambda: g4f_client.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": question}],
-                headers=HEADERS
-            )
-        )
-        if not response.choices or not hasattr(response.choices[0], 'message'):
-            return "Ошибка: пустой ответ от модели."
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Ошибка генерации, напишите разработчику: {e}"
-
-async def translate_to_english(text: str) -> str:
-    try:
-        response = await asyncio.to_thread(
-            lambda: g4f_client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "You are a translator. Translate the following text to English."},
-                    {"role": "user", "content": text}
-                ],
-                headers=HEADERS
-            )
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        raise RuntimeError(f"Ошибка перевода, напишите разработчику1: {e}")
-
-async def generate_image_url(prompt: str) -> str:
-    try:
-        translated = await translate_to_english(prompt)
-        response = await asyncio.to_thread(
-            lambda: g4f_client.images.generate(
-                model="flux",
-                prompt=translated,
-                response_format="url",
-                headers=HEADERS
-            )
-        )
-        if not response.data:
-            raise ValueError("Пустой ответ от генератора.")
-        return response.data[0].url
-    except Exception as e:
-        raise RuntimeError(f"Ошибка генерации изображения, напишите разработчику: {e}")
+logger = logging.getLogger("faust_assistant")
+reply_lock = asyncio.Lock()
 
 def register(client):
-    @register_command(client, "ai", r'^\.img (.+)', "сгенерировать изображение")
-    async def handle_img(event):
-        prompt = event.pattern_match.group(1)
+    async def init_owner():
         try:
-            await event.edit("Генерирую изображение...")
-            image_url = await generate_image_url(prompt)
-            img_data = requests.get(image_url, headers=HEADERS).content
-            image = io.BytesIO(img_data)
-            image.name = "generated.png"
-
-            await event.delete()
-            await client.send_file(event.chat_id, image, caption="Готово!")
+            me = await client.get_me()
+            if me:
+                state.set_account_user_id(me.id)
+                logger.info("Установлен владелец бота: %s (ID: %d)", me.first_name, me.id)
+                logger.info("Бот запущен в активном состоянии")
         except Exception as e:
-            await event.edit(str(e))
+            logger.error("Ошибка установки ID аккаунта: %s", e)
+
+    client.loop.create_task(init_owner())
+
+    @client.on(events.NewMessage(outgoing=True, pattern=r"\.ai (.+)"))
+    async def ai_cmd(event: Message):
+        user_id = str(event.sender_id)
+        if not state.is_owner(user_id):
+            await event.edit("Отказано в доступе. Только владелец может использовать команду .ai")
+            return
+
+        query = event.pattern_match.group(1).strip()
+        logger.info("AI_CMD | user_id=%s query=%r", user_id, query)
+        thinking_msg = await event.edit("Думаю…")
+        try:
+            answer = await brain.analyze(query, user_id)
+            if not isinstance(answer, str):
+                answer = str(answer)
+            await thinking_msg.edit(answer)
+            logger.info("Responded to .ai query=%r", query)
+        except Exception:
+            await thinking_msg.edit("Ошибка при обработке запроса. Смотри логи.")
+            logger.exception("Exception while processing .ai query=%r", query)
+
+    @client.on(events.NewMessage(incoming=True))
+    async def reply_to_bot(event: Message):
+        if not state.is_auto_reply():
+            return
+
+        if getattr(event.sender, "bot", False):
+            return
+        if getattr(event.chat, "forum", False) or getattr(event.message, "is_forum", False):
+            return
+
+        me = await client.get_me()
+        replied = await event.get_reply_message()
+        if not replied or replied.sender_id != me.id:
+            return
+
+        query = event.raw_text.strip()
+        user_id = str(event.sender_id)
+
+        is_command, response = state.process_state_command(query, user_id)
+        if is_command:
+            if response.startswith("Отказано в доступе"):
+                await event.reply(response)
+            else:
+                await event.reply(response)
+            return
+
+        user_display_name = ""
+        if event.sender:
+            user_display_name = event.sender.first_name or ""
+            if event.sender.last_name:
+                user_display_name += f" {event.sender.last_name}"
+            if event.sender.username:
+                user_display_name += f" (@{event.sender.username})"
+            user_display_name = user_display_name.strip()
+
+        logger.info("REPLY_CMD | user_id=%s query=%r display_name=%s", user_id, query, user_display_name)
+        async with reply_lock:
+            thinking_msg = await event.reply("Думаю…")
+            try:
+                answer = await brain.analyze(query, user_id, user_display_name=user_display_name)
+                if not isinstance(answer, str):
+                    answer = str(answer)
+                await thinking_msg.edit(answer)
+                logger.info("Replied to user query=%r", query)
+            except Exception:
+                await thinking_msg.edit("Ошибка при обработке запроса. Смотри логи.")
+                logger.exception("Exception while processing reply query=%r", query)
+
+    logger.info("Модуль AI зарегистрирован")
