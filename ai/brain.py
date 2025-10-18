@@ -349,6 +349,8 @@ async def resilient_ollama_call(system_prompt: str, user_prompt: str, conversati
     return ""
 
 def advanced_name_extraction(prompt: str) -> Optional[str]:
+    prompt_lower = prompt.lower()
+    
     patterns = [
         r'(?:меня\s+зовут\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)',
         r'(?:мое\s+имя\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)',
@@ -357,15 +359,15 @@ def advanced_name_extraction(prompt: str) -> Optional[str]:
         r'(?:я\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)(?:\s|$|\.|,)',
         r'(?:это\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)(?:\s|$|\.|,)',
         r'(?:представься\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)',
+        r'(?:запомни[^\w]*(?:что\s+)?(?:меня\s+)?зовут\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)',
+        r'(?:запомни[^\w]*(?:что\s+)?(?:мое\s+)?имя\s+)([А-ЯЁа-яёA-Za-z]{2,}(?:\s+[А-ЯЁа-яёA-Za-z]{2,})?)',
     ]
-    
-    prompt_lower = prompt.lower()
     
     for pattern in patterns:
         match = re.search(pattern, prompt_lower)
         if match:
             name = match.group(1).strip()
-            name = re.sub(r'\b(зовут|меня|я|мое|имя|это|представься|меня\s+зовут|мое\s+имя)\b', '', 
+            name = re.sub(r'\b(зовут|меня|я|мое|имя|это|представься|меня\s+зовут|мое\s+имя|запомни)\b', '', 
                          name, flags=re.IGNORECASE).strip()
             
             if (len(name) >= 2 and len(name) <= 50 and 
@@ -426,13 +428,17 @@ def build_adaptive_system_prompt(user_facts: str, history: List[Dict], user_id: 
     parts.append("Если соглашаешься с чем-то - объясни почему или предложи дальнейшие действия.")
     parts.append("Если подтверждаешь что-то - добавь полезную информацию или уточняющий вопрос.")
     
+    current_user_name = get_user_name(user_id)
+    if current_user_name:
+        parts.append(f"ВАЖНО: Сейчас ты общаешься с {current_user_name}. Обязательно используй это имя в разговоре для персонализации.")
+    
     if is_owner:
         if owner_name:
             parts.append(f"Ты общаешься со своим создателем {owner_name}. Относись к нему с уважением.")
         else:
             parts.append("Ты общаешься со своим создателем. Относись к нему с уважением.")
     else:
-        if user_name:
+        if user_name and not current_user_name:
             parts.append(f"Сейчас ты общаешься с {user_name}. Используй это имя в разговоре.")
         
         if user_facts:
@@ -488,6 +494,14 @@ async def analyze(prompt: str, user_id: str, timeout: float = OLLAMA_TIMEOUT, us
         
         prompt_lower = prompt_clean.lower()
         
+        current_name = get_user_name(uid)
+        name_extracted = False
+        
+        if not current_name:
+            if extract_and_save_name(prompt, uid):
+                current_name = get_user_name(uid)
+                name_extracted = True
+        
         if any(cmd in prompt_lower for cmd in ["как меня зовут", "мое имя", "кто я", "my name", "who am i"]):
             if is_owner_user:
                 owner_name = state.get_owner_name()
@@ -497,11 +511,7 @@ async def analyze(prompt: str, user_id: str, timeout: float = OLLAMA_TIMEOUT, us
                 if user_name:
                     return f"Вас зовут {user_name}. Рад быть вашим помощником! Чем могу помочь?"
                 else:
-                    if extract_and_save_name(prompt, uid):
-                        user_name = get_user_name(uid)
-                        return f"Теперь я знаю что вас зовут {user_name}. Рад познакомиться! Чем могу помочь?"
-                    else:
-                        return "Я еще не знаю вашего имени. Можете представиться? Это поможет сделать наше общение более персонализированным."
+                    return "Я еще не знаю вашего имени. Можете представиться? Это поможет сделать наше общение более персонализированным."
         
         if any(cmd in prompt_lower for cmd in ["кто ты", "представься", "твое имя", "who are you", "introduce yourself"]):
             owner_name = state.get_owner_name()
@@ -509,11 +519,6 @@ async def analyze(prompt: str, user_id: str, timeout: float = OLLAMA_TIMEOUT, us
                 return f"Я ваш ассистент, созданный чтобы помогать вам, {owner_name}. Готов ответить на любые ваши вопросы и помочь с задачами."
             else:
                 return "Я ваш персональный ассистент, готовый помочь с различными вопросами. Могу помочь с информацией, задачами или просто поддержать беседу."
-        
-        current_name = get_user_name(uid)
-        if not current_name:
-            if extract_and_save_name(prompt, uid):
-                current_name = get_user_name(uid)
         
         handled_state, resp_state = state.process_state_command(prompt, uid)
         if handled_state:
